@@ -1,0 +1,25 @@
+api_version: 1
+required:
+  - project
+  - repository
+  - release.tag_regex
+  - release.tag_prefix
+  - release.tag_signature
+  - release.checksums
+  - release.cosign
+  - release.attestations
+  - release.assets
+  - release.archives
+  - archive.entries
+  - archive.executables
+  - formula.path
+  - formula.template
+  - formula.tap_name
+  - formula.dependencies
+  - ci.runners
+supported:
+  tag_signature_strategies: [ssh-github]
+  checksum_algorithms: [sha256]
+  cosign_strategies: [keyless-bundle]
+  attestation_strategies: [github]
+  archive_formats: [tar.gz]

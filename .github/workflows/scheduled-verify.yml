@@ -1,0 +1,79 @@
+name: Scheduled committed-release verification
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-committed-release-verification
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  AQUA_CONFIG: ${{ github.workspace }}/aqua/aqua.yaml
+
+jobs:
+  discover:
+    name: Build verification matrix
+    runs-on: ubuntu-latest
+    outputs:
+      install: ${{ steps.matrix.outputs.install }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - id: matrix
+        run: echo "install=$(just project-matrix install)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Reverify ${{ matrix.project }} (${{ matrix.name }})
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.install) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - name: Verify supported runner architecture
+        run: |
+          [[ "$(uname -s)" == "${{ matrix.kernel }}" ]]
+          [[ "$(uname -m)" == "${{ matrix.arch }}" ]]
+      - name: Reverify committed immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          output=$(mktemp -d)
+          just project-verify "${{ matrix.project }}" "$output"
+          formula=$(yq -er '.formula.path' "projects/${{ matrix.project }}.yaml")
+          diff -u "$formula" "$output/$formula"
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
+        with:
+          core: true
+      - name: Install and test verified formula
+        run: |
+          just formula-install "${{ matrix.project }}"
+          just formula-test "${{ matrix.project }}"
+      - name: Open project-specific failure issue
+        if: ${{ failure() }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const project = "${{ matrix.project }}";
+            const title = `Scheduled ${project} supply-chain verification failed`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+            });
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `Read-only verification or install testing failed for ${project}: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+            }

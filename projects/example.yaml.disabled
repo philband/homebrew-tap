@@ -1,0 +1,6 @@
+api_version: 1
+project: example
+repository: owner/example
+# Copy projects/dotenvsec.yaml and replace every release, archive, formula, and
+# CI value. Enabling a project requires renaming this file to example.yaml.
+# Unsupported or omitted verification strategies are rejected fail-closed.

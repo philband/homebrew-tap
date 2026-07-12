@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  AQUA_CONFIG: ${{ github.workspace }}/aqua/aqua.yaml
+
+jobs:
+  discover:
+    name: Build project matrices
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.matrix.outputs.projects }}
+      install: ${{ steps.matrix.outputs.install }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - name: Build matrices
+        id: matrix
+        run: |
+          echo "projects=$(just project-matrix projects)" >> "$GITHUB_OUTPUT"
+          echo "install=$(just project-matrix install)" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Locks, workflows, and negative tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - name: Verify repository controls
+        run: |
+          just tools-verify
+          just workflow-lint
+          just actions-pinned
+          just generator-negative-tests
+
+  static:
+    name: Verify ${{ matrix.project }} source
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.projects) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
+        with:
+          core: true
+      - name: Reverify committed release and deterministic formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          output=$(mktemp -d)
+          just project-verify "$PROJECT" "$output"
+          formula=$(yq -er '.formula.path' "projects/$PROJECT.yaml")
+          diff -u "$formula" "$output/$formula"
+      - name: Style and audit formula
+        run: |
+          just formula-style "${{ matrix.project }}"
+          just formula-audit "${{ matrix.project }}"
+
+  install:
+    name: Install ${{ matrix.project }} (${{ matrix.name }})
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.install) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - name: Verify supported runner architecture
+        run: |
+          [[ "$(uname -s)" == "${{ matrix.kernel }}" ]]
+          [[ "$(uname -m)" == "${{ matrix.arch }}" ]]
+      - uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
+        with:
+          core: true
+      - name: Install and test formula
+        run: |
+          just formula-install "${{ matrix.project }}"
+          just formula-test "${{ matrix.project }}"

@@ -1,0 +1,114 @@
+name: Update formulas
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  repository_dispatch:
+    types: [tap-release]
+  workflow_dispatch:
+
+concurrency:
+  group: update-formulas
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AQUA_CONFIG: ${{ github.workspace }}/aqua/aqua.yaml
+
+jobs:
+  discover:
+    name: Discover configured projects
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-aqua
+      - name: Build project matrix
+        id: matrix
+        env:
+          TARGET_PROJECT: ${{ github.event.client_payload.project }}
+          FORBIDDEN_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          if [[ -n "$FORBIDDEN_TAG" ]]; then
+            echo "dispatch payloads must not select a release tag" >&2
+            exit 1
+          fi
+          matrix=$(just project-matrix projects "$TARGET_PROJECT")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  update:
+    name: Update ${{ matrix.project }}
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-aqua
+      - name: Create least-privilege GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.HOMEBREW_TAP_APP_ID }}
+          private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
+          owner: philband
+          repositories: homebrew-tap
+          permission-contents: write
+          permission-metadata: read
+          permission-pull-requests: write
+      - name: Discover, verify, and render latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          output="$RUNNER_TEMP/generated"
+          metadata="$RUNNER_TEMP/release.env"
+          just project-update "$PROJECT" "$output" "$metadata"
+          cat "$metadata" >> "$GITHUB_OUTPUT"
+      - name: Commit and push App-authored branch
+        id: push
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PROJECT: ${{ matrix.project }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          FORMULA: ${{ steps.release.outputs.formula }}
+        run: |
+          branch="updates/$PROJECT-$RELEASE_TAG"
+          git checkout -B "$branch" origin/main
+          cp "$RUNNER_TEMP/generated/$FORMULA" "$FORMULA"
+          if git diff --quiet -- "$FORMULA"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "homebrew-tap-automation[bot]"
+          git config user.email "homebrew-tap-automation[bot]@users.noreply.github.com"
+          git add "$FORMULA"
+          git commit -m "chore: update $PROJECT to $RELEASE_TAG"
+          git push --force-with-lease \
+            "https://x-access-token:${APP_TOKEN}@github.com/philband/homebrew-tap.git" \
+            "HEAD:refs/heads/$branch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Open or update review pull request
+        if: steps.push.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PROJECT: ${{ matrix.project }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          BRANCH: ${{ steps.push.outputs.branch }}
+        run: |
+          if gh pr list --repo philband/homebrew-tap --head "philband:$BRANCH" --state open --json number --jq 'length' | grep -qx 0; then
+            gh pr create --repo philband/homebrew-tap --base main --head "$BRANCH" \
+              --title "chore: update $PROJECT to $RELEASE_TAG" \
+              --body "Verified automated formula update for the latest signed, published, immutable $PROJECT release $RELEASE_TAG. Review the generated formula and require all CI checks before merging."
+          else
+            echo "Existing pull request updated by the branch push."
+          fi

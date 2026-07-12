@@ -1,0 +1,10 @@
+---
+registries:
+  - type: standard
+    ref: v4.536.0
+packages:
+  - name: casey/just@1.56.0
+  - name: sigstore/cosign@v3.1.1
+  - name: rhysd/actionlint@v1.7.12
+  - name: cli/cli@v2.96.0
+  - name: mikefarah/yq@v4.47.2

@@ -1,0 +1,64 @@
+api_version: 1
+project: dotenvsec
+repository: philband/dotenvsec
+
+release:
+  tag_regex: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+  tag_prefix: v
+  tag_signature:
+    strategy: ssh-github
+    signer: philband
+  checksums:
+    algorithm: sha256
+    asset: checksums.txt
+  cosign:
+    strategy: keyless-bundle
+    bundle: checksums.txt.bundle
+    certificate_identity: 'https://github.com/philband/dotenvsec/.github/workflows/release.yml@refs/tags/{tag}'
+    oidc_issuer: https://token.actions.githubusercontent.com
+  attestations:
+    strategy: github
+  assets:
+    fixed:
+      - checksums.txt
+      - checksums.txt.bundle
+  archives:
+    - key: DARWIN_ARM64
+      os: darwin
+      arch: arm64
+      format: tar.gz
+      asset: 'dotenvsec_{version}_darwin_arm64.tar.gz'
+      sbom: 'dotenvsec_{version}_darwin_arm64.tar.gz.spdx.sbom'
+    - key: LINUX_AMD64
+      os: linux
+      arch: amd64
+      format: tar.gz
+      asset: 'dotenvsec_{version}_linux_amd64.tar.gz'
+      sbom: 'dotenvsec_{version}_linux_amd64.tar.gz.spdx.sbom'
+
+archive:
+  entries:
+    - LICENSE
+    - README.md
+    - dotenvsec
+    - dotenvsec-provider-sops
+  executables:
+    - dotenvsec
+    - dotenvsec-provider-sops
+
+formula:
+  path: Formula/dotenvsec.rb
+  template: templates/dotenvsec.rb.tmpl
+  tap_name: philband/tap/dotenvsec
+  dependencies: [sops]
+
+ci:
+  runners:
+    - name: macOS arm64
+      os: macos-15
+      kernel: Darwin
+      arch: arm64
+    - name: Linux amd64
+      os: ubuntu-latest
+      kernel: Linux
+      arch: x86_64
