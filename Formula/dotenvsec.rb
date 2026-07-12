@@ -1,15 +1,15 @@
 class Dotenvsec < Formula
   desc "Fail-closed SOPS environment loader"
   homepage "https://github.com/philband/dotenvsec"
-  version "0.5.0"
+  version "0.6.0"
   license "MIT"
 
   depends_on "sops"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/philband/dotenvsec/releases/download/v0.5.0/dotenvsec_0.5.0_darwin_arm64.tar.gz"
-      sha256 "d2defb5ba9fca3513cb78c4cd2a8fde0ca102480f8d2e7fa04516754d57377c9"
+      url "https://github.com/philband/dotenvsec/releases/download/v0.6.0/dotenvsec_0.6.0_darwin_arm64.tar.gz"
+      sha256 "782536e70b49cd5f2f645bf6433b5dc8b933a6ec88d46d185a4ed92f0eb501a2"
     else
       odie "dotenvsec supports macOS arm64 only; Intel macOS is not supported"
     end
@@ -17,8 +17,8 @@ class Dotenvsec < Formula
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/philband/dotenvsec/releases/download/v0.5.0/dotenvsec_0.5.0_linux_amd64.tar.gz"
-      sha256 "a3d9cde6e47231be3931273a4238b30c01512840a2c7ac04e20d92893d020875"
+      url "https://github.com/philband/dotenvsec/releases/download/v0.6.0/dotenvsec_0.6.0_linux_amd64.tar.gz"
+      sha256 "4ba48f46581bfd968e1df833c497f59897c68ff6bd32be42dc669ae8a1520a2c"
     else
       odie "dotenvsec supports Linux amd64 only; Linux arm64 is not supported"
     end
